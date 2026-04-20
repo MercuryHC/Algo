@@ -6,7 +6,17 @@
 
 ---
 
-## 2.1 构造函数的各种形态 -- 以 Mystring 为例
+
+## 2.1 对象的生命周期
+
+每个对象都有明确的"诞生"和"消亡"时刻：
+
+```txt
+诞生 ──→ 构造函数自动调用 ──→ 对象可用 ──→ 析构函数自动调用 ──→ 消亡
+         （初始化资源）     （正常使用）     （释放资源）
+```
+
+## 2.2 构造函数的各种形态 -- 以 Mystring 为例
 
 通过自定义字符串类 `Mystring`，完整演示对象的构造、拷贝、移动和析构全过程。
 
@@ -22,7 +32,10 @@ Mystring() : data(nullptr), length(0) {
 
 ```cpp
 Mystring s1;   // 触发默认构造
+MyString arr[10];  // 数组中每个元素都调用默认构造
 ```
+
+**注意**: 一旦定义了任何构造函数，编译器将不再生成默认构造函数，除非显式声明 `Mystring() = default;`。
 
 ### 参数化构造函数
 
@@ -46,28 +59,64 @@ Mystring(const char *str) {
 Mystring s2("Hello");   // 触发参数化构造
 ```
 
-### 拷贝构造函数（深拷贝）
-
-用一个已有对象初始化新对象时调用，实现**深拷贝**（分配新内存并复制数据）：
-
+### 初始化列表
 ```cpp
-Mystring(const Mystring &other) {
-  length = other.length;
-  if (other.data) {
-    data = new char[length + 1];
-    strcpy(data, other.data);   // 深拷贝: 分配新内存
-  } else {
-    data = nullptr;
-  }
-  cout << " [拷贝构造] \"" << data << "\"" << endl;
+// 写法一：在构造函数体内赋值
+Rectangle(double w, double h) {
+    width = w;     // 这是赋值，不是初始化
+    height = h;
 }
+
+// 写法二：初始化列表（推荐）
+Rectangle(double w, double h)
+    : width(w), height(h)   // 这才是真正的初始化
+{ }
 ```
 
-**触发场景**:
+**初始化列表的优势**：
+
+1. `const` 成员和引用成员**必须**用初始化列表
+2. 更高效：直接初始化 vs 先默认构造再赋值
+3. 按成员声明顺序初始化，与列表顺序无关
+
+### 拷贝构造函数（深拷贝）
+
+用一个已有对象**创建**新对象时调用：
 
 ```cpp
-Mystring s3 = s2;    // 拷贝构造（初始化，不是赋值！）
-Mystring s3(s2);     // 同上，另一种写法
+MyString s1("Hello");
+MyString s2 = s1;    // 拷贝构造
+MyString s3(s1);     // 拷贝构造（等价写法）
+
+void func(MyString s);  // 值传递时也调用拷贝构造
+func(s1);
+```
+
+#### 深拷贝 vs 浅拷贝
+
+```
+浅拷贝（危险）：
+s1: data ──→ "Hello"
+s2: data ──→ "Hello"    ← 指向同一块内存！
+析构时 double free！
+
+深拷贝（正确）：
+s1: data ──→ "Hello"
+s2: data ──→ "Hello"    ← 各自独立的内存副本
+```
+
+实现深拷贝的关键代码：
+
+```cpp
+MyString(const MyString& other) {
+    length = other.length;
+    if (other.data) {
+        data = new char[length + 1];  // 分配新内存
+        strcpy(data, other.data);      // 复制内容
+    } else {
+        data = nullptr;
+    }
+}
 ```
 
 ### 拷贝赋值运算符
@@ -97,6 +146,13 @@ s4 = s2;              // 拷贝赋值（s4 已存在）
 
 > **自赋值检测至关重要**: 如果没有 `if (this != &other)`，当 `s = s;` 时会先释放自身内存，导致读取已释放的数据。
 
+实现要点：
+
+1. **自赋值检查**：`if (this != &other)`
+2. **先释放旧资源**：`delete[] data;`
+3. **再分配新资源**：`data = new char[...];`
+4. **返回 *this**：支持 `a = b = c;`
+
 ### 移动构造函数（C++11）
 
 接收**右值引用**，直接"窃取"资源指针，避免不必要的内存分配和复制：
@@ -108,10 +164,13 @@ Mystring(Mystring &&other) noexcept
   other.length = 0;
   cout << " [移动构造] 资源转移完成" << endl;
 }
+
 ```
 
 ```cpp
 Mystring s5 = std::move(s2);   // s2 的资源转移到 s5，s2 变为空
+// s2 即将消亡，它的资源反正要释放——
+// 为什么不直接"偷"过来？
 ```
 
 ### 移动赋值运算符
@@ -132,6 +191,18 @@ Mystring &operator=(Mystring &&other) noexcept {
 ```cpp
 Mystring s6("World");
 s6 = std::move(s3);    // s3 的资源转移到 s6
+```
+
+**移动 vs 拷贝**：
+
+```
+拷贝：分配新内存 → 逐字节复制 → 释放旧内存
+移动：交换指针   → 完成！（O(1) 操作）
+```
+
+```
+移动前：s1: data──→"Hello"    s2: (空)
+移动后：s1: data──→nullptr    s2: data──→"Hello"
 ```
 
 ### 析构函数

@@ -152,10 +152,19 @@ public:
   }
 };
 
-// ============================================================
+// ============================================================================
 // 7.3 CRTP (Curiously Recurring Template Pattern)
-// ============================================================
+// ============================================================================
 // 编译期多态：零运行开销
+// 解释：CRTP 是一种 C++ 模板技巧，基类是一个模板，参数是子类自身类型
+// 通过 CRTP，基类可以在编译期调用子类的方法，实现静态多态（编译期多态），
+// 避免虚函数的运行时开销
+// 适用场景：计数器、接口检查、静态多态等
+// 注意：CRTP 不是传统意义上的继承，而是一种模板模式，基类和子类之间的关系在
+// 编译期被解析
+// ============================================================================
+// 基类模板，Derived 是子类类型
+// 在基类中使用 Derived 来访问子类的方法或成员，实现编译期多态
 template <typename Derived> class CounterCPTR {
   static int count;
 
@@ -167,7 +176,7 @@ public:
   static int getCount() { return count; }
 };
 template <typename Derived> int CounterCPTR<Derived>::count = 0;
-
+// 具体类，继承自 CounterCPTR，传入自身类型作为模板参数
 class Widget : public CounterCPTR<Widget> {
   string name;
 
@@ -176,6 +185,7 @@ public:
     cout << "创建 Widget: " << name << endl;
   }
 };
+// 另一个具体类，继承自 CounterCPTR，传入自身类型作为模板参数
 class Gadget : public CounterCPTR<Gadget> {
 public:
   Gadget() { cout << "创建 Gadget" << endl; }
@@ -185,7 +195,7 @@ public:
 template <typename Derived> class PrintTableCRTP {
 public:
   void print() const {
-    // 编译期绑定: 调用 Derived 类的 toString() 方法
+    // NOTE: 编译期绑定: 调用 Derived 类的 toString() 方法
     cout << static_cast<const Derived *>(this)->toString() << endl;
   }
 };
@@ -215,6 +225,7 @@ public:
 // ============================================================
 // 7.4 Mixin 模式: 通过多重继承组合功能
 // ============================================================
+// 功能类1: 提供时间戳功能
 template <typename Base> class Timestamped : public Base {
   string timestamp;
 
@@ -229,7 +240,7 @@ public:
     cout << "时间戳: " << timestamp << endl;
   }
 };
-
+// 功能类2: 提供标签功能
 template <typename Base> class Tagged : public Base {
   vector<string> tags;
 
@@ -265,7 +276,16 @@ public:
 // 组合 Timestamped 和 Tagged 功能
 // 注意: TaggedMessage 需要按照顺序构造内层到外层
 // Tagged<Timestamped<Message>> 先构造 Timestamped<Message>，再构造
-// Tagged<Timestamped<Message>>
+// 构造顺序: Timestamped<Message> -> Tagged<Timestamped<Message>>
+//
+// 继承关系：
+// TaggedMessage 继承自 Tagged<Timestamped<Message>>，同时具有时间戳和标签功能
+// Timestamped<Message> 继承自 Message，具有时间戳功能
+// Message 是基础类，提供消息内容和打印功能
+// 功能组合
+// Message 提供基本功能（内容和打印）
+// Timestamped<Message> 在 Message 基础上添加时间戳功能
+// Tagged<Timestamped<Message>> 在 Timestamped<Message> 基础上添加标签功能
 using TaggedMessage = Tagged<Timestamped<Message>>;
 
 // ============================================================

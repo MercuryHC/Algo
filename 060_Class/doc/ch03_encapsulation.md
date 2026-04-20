@@ -1,224 +1,208 @@
-# 第三章：封装与控制 -- 面向对象的核心原则
+# 第三章：封装与访问控制 —— 面向对象的核心原则
 
-> 本章讲解 C++ 封装的核心机制：访问控制、getter/setter 模式、友元、静态成员和不可变类设计。
-
-**源码位置**: `ch03_encapsulation/src/main.cpp`
+> 对应代码：`ch03_encapsulation.cpp`
 
 ---
 
-## 3.1 封装实战：银行账户
+## 3.1 访问控制
 
-封装的核心思想：**隐藏内部实现，暴露受控接口**。通过 `private` 保护数据，通过 `public` 方法提供安全的操作。
+C++ 提供三种访问修饰符和一种特殊机制：
+
+```
+┌─────────────────────────────────────────────┐
+│                  类内部                       │
+│  ┌───────┐  ┌───────────┐  ┌─────────────┐ │
+│  │public │  │ protected │  │  private    │ │
+│  │       │  │           │  │             │ │
+│  │外部+   │  │ 自己+      │  │ 仅自己      │ │
+│  │派生类  │  │ 派生类     │  │             │ │
+│  └───────┘  └───────────┘  └─────────────┘ │
+│                                              │
+│  friend（特许通道）→ 可以访问 private         │
+└─────────────────────────────────────────────┘
+```
+
+### 访问级别对比
+
+| 修饰符 | 类内部 | 派生类 | 外部 |
+|--------|--------|--------|------|
+| `public` | ✅ | ✅ | ✅ |
+| `protected` | ✅ | ✅ | ❌ |
+| `private` | ✅ | ❌ | ❌ |
+| `friend` | ✅ | ❌ | ✅（特许） |
+
+## 3.2 封装实战：银行账户
+
+### 为什么不用裸的 getter/setter
 
 ```cpp
+// 不好的设计：直接暴露数据
+class BadAccount {
+public:
+    string owner;
+    double balance;  // 外部可以随意修改！
+};
+
+BadAccount acc;
+acc.balance = -1000000;  // 灾难！
+```
+
+```cpp
+// 好的设计：通过业务方法操作
 class BankAccount {
 private:
-  string owner;
-  double balance;
-  static double interestRate;   // 静态成员: 所有对象共享一份
-  static int totalAccounts;     // 静态成员: 类级别的计数器
+    double balance;
 
 public:
-  BankAccount(const string &owner, double initial)
-      : owner(owner), balance(initial) {
-    ++totalAccounts;
-  }
-
-  ~BankAccount() {
-    --totalAccounts;
-  }
-
-  // Getter: 只读访问
-  double getBalance() const { return balance; }
-  string getOwner() const { return owner; }
-
-  // 业务方法（而非简单的 setter）-- 包含校验逻辑
-  void deposit(double amount) {
-    if (amount <= 0) {
-      cout << "存款金额必须为正数" << endl;
-      return;
+    void deposit(double amount) {      // 有校验逻辑
+        if (amount <= 0) return;
+        balance += amount;
     }
-    balance += amount;
-  }
 
-  bool withdraw(double amount) {
-    if (amount <= 0 || amount > balance) {
-      cout << "余额不足或金额无效" << endl;
-      return false;
+    bool withdraw(double amount) {     // 有业务规则
+        if (amount > balance) return false;
+        balance -= amount;
+        return true;
     }
-    balance -= amount;
-    return true;
-  }
 
-  void applyInterest() {
-    balance += balance * interestRate;
-  }
-
-  // 静态成员函数
-  static void setInterestRate(double rate) { interestRate = rate; }
-  static int getTotalAccounts() { return totalAccounts; }
+    double get_balance() const { return balance; }  // 只读访问
 };
 ```
 
-### 访问控制三个级别
+### 设计原则
 
-| 关键字 | 类内部 | 派生类 | 外部 |
-|--------|--------|--------|------|
-| `public` | 可访问 | 可访问 | 可访问 |
-| `protected` | 可访问 | 可访问 | 不可访问 |
-| `private` | 可访问 | 不可访问 | 不可访问 |
+- **不要暴露裸数据**：通过方法操作，可以加入校验、日志、通知等
+- **最小权限**：能 private 就 private，能 protected 就 protected
+- **业务方法优于 setter**：`withdraw()` 比 `set_balance()` 更能体现意图
 
-### 静态成员
+## 3.3 静态成员
 
-- `static` 成员变量：属于**类级别**，所有对象共享同一份数据
-- `static` 成员函数：只能访问 `static` 成员，不依赖对象实例
-- 必须在**类外**定义和初始化：
+### 静态成员变量
+
+所有对象**共享同一份**，不属于任何单个对象：
 
 ```cpp
-double BankAccount::interestRate = 0.01;   // 类外初始化
-int BankAccount::totalAccounts = 0;
+class BankAccount {
+    static double interest_rate;   // 声明
+    static int total_accounts;
+};
+
+// 类外初始化（必须！）
+double BankAccount::interest_rate = 0.02;
+int BankAccount::total_accounts = 0;
 ```
 
-```cpp
-BankAccount::setInterestRate(0.02);         // 通过类名调用
-cout << BankAccount::getTotalAccounts();    // 不需要对象实例
+```
+acc1 ──→ ┌──────────────┐
+acc2 ──→ │ interest_rate │ ← 所有账户共享
+acc3 ──→ │ total_accounts│
+         └──────────────┘
 ```
 
-### Getter/Setter vs 业务方法
+### 静态成员函数
 
-**不推荐** -- 简单的 getter/setter 暴露了内部实现：
-
-```cpp
-void setBalance(double b) { balance = b; }   // 无校验，破坏封装
-```
-
-**推荐** -- 业务方法封装了校验逻辑：
+没有 `this` 指针，只能访问静态成员：
 
 ```cpp
-bool withdraw(double amount) {    // 包含金额校验和余额检查
-  if (amount > balance) return false;
-  balance -= amount;
-  return true;
+static void set_interest_rate(double rate) {
+    interest_rate = rate;   // ✅ 可以访问静态成员
+    // owner = "xxx";      // ❌ 不能访问非静态成员
 }
+
+// 调用方式
+BankAccount::set_interest_rate(0.03);  // 通过类名调用
 ```
 
----
+### 静态成员的用途
 
-## 3.2 友元 (friend) -- 打破封装的特殊通道
+| 用途 | 示例 |
+|------|------|
+| 计数器 | `static int total_accounts;` |
+| 共享配置 | `static double interest_rate;` |
+| 工厂方法 | `static BankAccount create(...)` |
+| 工具函数 | `static double calc_interest(...)` |
 
-友元机制允许特定的外部函数或类访问 `private` 成员。友元**不是**成员函数，它只是获得了访问权限。
+## 3.4 友元（friend）
+
+友元打破了封装的壁垒，让特定的函数或类可以访问 private 成员。
 
 ### 友元函数
 
 ```cpp
 class Matrix {
-  double data[2][2];    // 私有数据
+    double data[2][2];
 
 public:
-  Matrix(double a, double b, double c, double d) { ... }
-
-  // 声明友元函数: operator+ 可以访问 Matrix 的私有成员
-  friend Matrix operator+(const Matrix &lhs, const Matrix &rhs);
-
-  // 友元函数: 重载 << 用于输出
-  friend ostream &operator<<(ostream &os, const Matrix &m);
+    // 声明友元
+    friend Matrix operator+(const Matrix& lhs, const Matrix& rhs);
+    friend ostream& operator<<(ostream& os, const Matrix& m);
 };
 
-// 友元函数实现（不是成员函数，没有 Matrix::）
-Matrix operator+(const Matrix &lhs, const Matrix &rhs) {
-  return Matrix(
-    lhs.data[0][0] + rhs.data[0][0],   // 访问私有成员
-    lhs.data[0][1] + rhs.data[0][1],
-    lhs.data[1][0] + rhs.data[1][0],
-    lhs.data[1][1] + rhs.data[1][1]);
+// 实现：可以直接访问 data
+Matrix operator+(const Matrix& lhs, const Matrix& rhs) {
+    return Matrix(
+        lhs.data[0][0] + rhs.data[0][0],
+        // ... 直接访问 private 成员
+    );
 }
 ```
 
 ### 友元类
 
-整个类的所有方法都可以访问另一个类的私有成员：
-
 ```cpp
 class Matrix {
-  double data[2][2];
-public:
-  friend class MatrixPrinter;   // MatrixPrinter 的所有方法可访问 Matrix 的私有成员
+    friend class MatrixPrinter;  // 整个 MatrixPrinter 类都是友元
 };
 
 class MatrixPrinter {
 public:
-  static void print(const Matrix &m) {
-    cout << "[" << m.data[0][0] << ", " << m.data[0][1] << "]" << endl;   // 直接访问私有成员
-    cout << "[" << m.data[1][0] << ", " << m.data[1][1] << "]" << endl;
-  }
+    static void print_detailed(const Matrix& m) {
+        // 可以直接访问 m.data
+        cout << m.data[0][0];  // ✅
+    }
 };
 ```
 
-### 友元的注意事项
+### 何时使用友元
 
-- 友元关系是**单向的**：A 是 B 的友元，不意味着 B 是 A 的友元
-- 友元关系**不可继承**：派生类不会自动获得友元权限
-- 友元不受 `public`/`private`/`protected` 位置限制，通常放在 `public` 区域
-- **谨慎使用**：友元破坏了封装，只在确实必要时使用（如运算符重载 `<<`）
+| 场景 | 解决方案 |
+|------|---------|
+| `operator<<` 需要访问私有数据 | 友元函数 |
+| 两个紧密关联的类需要互相访问 | 友元类 |
+| 需要给特定函数开后门 | 友元函数 |
 
-### 友元典型使用场景
+**注意**：友元关系不能被继承，不能被传递。
 
-1. 重载 `<<` 和 `>>` 运算符（左操作数是流，不能写成成员函数）
-2. 两个类紧密耦合需要互相访问内部状态
-3. 工厂类需要访问私有构造函数
+## 3.5 不可变类设计
 
----
-
-## 3.3 不可变类设计 (Immutable Class)
-
-不可变类的所有操作都**返回新对象**，自身永远不被修改。这在并发编程和函数式风格中非常有用。
+不可变对象一旦创建就不能修改，所有操作都返回新对象：
 
 ```cpp
 class Complex {
-private:
-  double real;
-  double imag;
+    double real, imag;
 
 public:
-  Complex(double r = 0, double i = 0) : real(r), imag(i) {}
+    Complex(double r, double i) : real(r), imag(i) {}
 
-  // 所有运算返回新对象，不修改自身
-  Complex operator+(const Complex &other) const {
-    return Complex(real + other.real, imag + other.imag);
-  }
+    // 操作返回新对象，不修改自身
+    Complex operator+(const Complex& other) const {
+        return Complex(real + other.real, imag + other.imag);
+    }
 
-  Complex operator*(const Complex &other) const {
-    return Complex(
-      real * other.real - imag * other.imag,
-      real * other.imag + imag * other.real);
-  }
-
-  double magnitude() const {
-    return sqrt(real * real + imag * imag);
-  }
-
-  friend ostream &operator<<(ostream &os, const Complex &c) {
-    os << c.real << (c.imag >= 0 ? " + " : " - ") << abs(c.imag) << "i";
-    return os;
-  }
+    Complex operator*(const Complex& other) const {
+        return Complex(
+            real * other.real - imag * other.imag,
+            real * other.imag + imag * other.real
+        );
+    }
 };
 ```
 
-```cpp
-Complex c1(1, 2);       // 1 + 2i
-Complex c2(3, 4);       // 3 + 4i
-Complex c3 = c1 + c2;   // 返回新对象 4 + 6i，c1 不变
-Complex c4 = c1 * c2;   // 返回新对象 -5 + 10i，c1 不变
-```
-
-### 设计不可变类的原则
-
-1. 所有成员变量为 `private`
-2. 不提供 setter 方法
-3. 所有运算方法标记为 `const` 并返回新对象
-4. 构造函数初始化所有成员
-
----
+**不可变类的优势**：
+1. 线程安全（无共享可变状态）
+2. 可以安全地缓存和复用
+3. 易于推理和测试
+4. 适合作为 map/set 的键
 
 ## 本章小结
 
